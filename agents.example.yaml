@@ -1,0 +1,147 @@
+# Sample YAML configuration demonstrating per-agent model and tool selection.
+# Tools under `tools:` are built into miniAgent — no extra installs needed.
+# Toolsets under `toolsets:` come from the MCP servers declared below.
+#
+# Load with:
+#   from miniagent.profile import AgentProfile, MCPServerConfig
+#   profiles = AgentProfile.from_yaml("agents.example.yaml")
+#   researcher = AgentProfile.from_yaml("agents.example.yaml", name="researcher")
+#   servers = MCPServerConfig.from_yaml("agents.example.yaml")
+
+# ── MCP servers — external tools, selected by agents with `toolsets:` ────────
+# Connecting them needs the `mcp` extra (`pip install -e ".[mcp]"`). The REST API connects
+# every server listed here at startup, so if you copy this file to agents.yaml
+# without Node.js (for npx) and GITHUB_TOKEN, delete this section first.
+mcp_servers:
+  # stdio: launched as a subprocess; no secrets needed.
+  - name: filesystem
+    command: npx
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "."]
+    name_prefix: fs_
+    tool_filter: [read_text_file, list_directory, search_files]
+
+  # Streamable HTTP: a remote server. ${GITHUB_TOKEN} is read from the
+  # environment when the toolset is built — never write the token here.
+  - name: github
+    url: https://api.githubcopilot.com/mcp/
+    headers:
+      Authorization: "Bearer ${GITHUB_TOKEN}"
+    name_prefix: gh_
+    timeout_seconds: 30
+
+agents:
+  # ── General assistant — no tools, straightforward Q&A ────────────────────
+  - name: assistant
+    description: "General-purpose AI assistant."
+    system_prompt: "You are a helpful, concise AI assistant."
+    model:
+      id: "openai/gpt-4o-mini"
+      temperature: 0.7
+      max_tokens: 1024
+    tools: []
+    max_iterations: 5
+
+  # ── Research agent — web + file access ───────────────────────────────────
+  - name: researcher
+    description: "Gathers information from the web and local files."
+    system_prompt: >
+      You are a thorough research assistant.
+      Use available tools to find accurate, up-to-date information.
+      Always summarize your findings clearly.
+    model:
+      id: "openai/gpt-4o-mini"
+      temperature: 0.3
+      max_tokens: 2048
+    tools:
+      - web_fetch
+      - weather
+      - file_reader
+    max_iterations: 10
+
+  # ── Writer agent — turns research into polished prose ────────────────────
+  - name: writer
+    description: "Produces clear, well-structured written content."
+    system_prompt: >
+      You are a professional technical writer.
+      Write clearly, concisely, and engagingly.
+      Organize your output with headers and bullet points where appropriate.
+    model:
+      id: "openai/gpt-4o-mini"
+      temperature: 0.8
+      max_tokens: 2048
+    tools: []
+    max_iterations: 5
+
+  # ── Math assistant — calculator + utilities ───────────────────────────────
+  - name: math-assistant
+    description: "Solves arithmetic and data problems using tools."
+    system_prompt: >
+      You are a precise math assistant.
+      Use the calculator tool for all arithmetic — never compute in your head.
+      Show your work step by step.
+    model:
+      id: "openai/gpt-4o-mini"
+      temperature: 0.1
+      max_tokens: 1024
+    tools:
+      - calculator
+      - timestamp
+      - uuid_generator
+      - word_count
+      - json_formatter
+    max_iterations: 10
+
+  # ── Claude analyst — any vendor's model, same agent ──────────────────────
+  - name: claude-analyst
+    description: "Analytical reasoning using Claude."
+    system_prompt: >
+      You are a careful, analytical thinker.
+      Think step by step before giving your final answer.
+    model:
+      id: "anthropic/claude-sonnet-4-6"
+      temperature: 0.3
+      max_tokens: 8192
+    tools: []
+    max_iterations: 5
+
+  # ── Repository assistant — built-in tools plus two MCP toolsets ──────────
+  - name: repo-assistant
+    description: "Answers questions about a codebase and its GitHub issues."
+    system_prompt: >
+      You help developers understand a repository.
+      Read local files with the fs_ tools and look up issues and pull
+      requests with the gh_ tools. Cite file paths and issue numbers.
+    model:
+      id: "anthropic/claude-sonnet-4-6"
+      temperature: 0.2
+      max_tokens: 4096
+    tools:
+      - word_count
+    toolsets:
+      - filesystem
+      - github
+    max_iterations: 10
+
+  # ── Gemini researcher — built-in template, Google model ──────────────────
+  - name: gemini-researcher
+    template: web-researcher
+    model:
+      id: "gemini/gemini-2.0-flash"
+      temperature: 0.3
+
+  # ── Extended thinking — for complex multi-step reasoning ──────────────────
+  # extra_params are passed straight to LiteLLM, which forwards `thinking`
+  # to Anthropic.
+  - name: claude-reasoner
+    description: "Solves complex problems using Claude's extended thinking."
+    system_prompt: "You are a careful reasoner. Think step by step before answering."
+    model:
+      id: "anthropic/claude-sonnet-4-6"
+      temperature: 1.0        # Anthropic requires 1.0 when thinking is enabled
+      max_tokens: 16000
+      extra_params:
+        thinking:
+          type: enabled
+          budget_tokens: 10000
+    tools: []
+    max_iterations: 5
